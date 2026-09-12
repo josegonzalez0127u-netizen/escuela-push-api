@@ -1,0 +1,72 @@
+const webpush = require('web-push');
+const { kv } = require('@vercel/kv');
+
+module.exports = async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const { title, body } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: 'Title required' });
+    }
+
+    // Configurar VAPID
+    webpush.setVapidDetails(
+      'mailto:admin@escuela.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+
+    // Leer todas las suscripciones
+    const keys = await kv.keys('sub_*');
+    const subscriptions = [];
+
+    for (const key of keys) {
+      const data = await kv.get(key);
+      if (data) {
+        subscriptions.push(typeof data === 'string' ? JSON.parse(data) : data);
+      }
+    }
+
+    if (subscriptions.length === 0) {
+      return res.status(200).json({ success: true, sent: 0 });
+    }
+
+    // Enviar push a cada suscripción
+    const payload = JSON.stringify({
+      title: title,
+      body: body || '',
+      icon: 'icon-192.png'
+    });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const subscription of subscriptions) {
+      try {
+        await webpush.sendNotification(subscription, payload);
+        sent++;
+      } catch (error) {
+        failed++;
+        // Si la suscripción expiró, eliminarla
+        if (error.statusCode === 410 || error.statusCode === 404) {
+          const key = 'sub_' + Buffer.from(subscription.endpoint).toString('base64url');
+          await kv.del(key);
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      sent: sent,
+      failed: failed
+    });
+
+  } catch (error) {
+    console.error('Notify error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
