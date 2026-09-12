@@ -1,5 +1,10 @@
 const webpush = require('web-push');
-const { kv } = require('@vercel/kv');
+const { Redis } = require('@upstash/redis');
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,19 +18,17 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Title required' });
     }
 
-    // Configurar VAPID
     webpush.setVapidDetails(
       'mailto:admin@escuela.com',
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     );
 
-    // Leer todas las suscripciones
-    const keys = await kv.keys('sub_*');
+    const keys = await redis.keys('sub_*');
     const subscriptions = [];
 
     for (const key of keys) {
-      const data = await kv.get(key);
+      const data = await redis.get(key);
       if (data) {
         subscriptions.push(typeof data === 'string' ? JSON.parse(data) : data);
       }
@@ -35,7 +38,6 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ success: true, sent: 0 });
     }
 
-    // Enviar push a cada suscripción
     const payload = JSON.stringify({
       title: title,
       body: body || '',
@@ -51,10 +53,9 @@ module.exports = async function handler(req, res) {
         sent++;
       } catch (error) {
         failed++;
-        // Si la suscripción expiró, eliminarla
         if (error.statusCode === 410 || error.statusCode === 404) {
           const key = 'sub_' + Buffer.from(subscription.endpoint).toString('base64url');
-          await kv.del(key);
+          await redis.del(key);
         }
       }
     }
