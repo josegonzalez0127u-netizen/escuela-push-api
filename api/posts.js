@@ -52,7 +52,7 @@ module.exports = async function handler(req, res) {
       const newPost = {
         id,
         titulo: postData.titulo,
-        descripcion: postData: postData.descripcion || '',
+        descripcion: postData.descripcion || '',
         paginaId: postData.paginaId || 'inicio',
         publicado: postData.publicado !== false,
         fotos: postData.fotos || [],
